@@ -5,3 +5,5 @@ services:
     build: .
     volumes:
       - "./media:/usr/src/app/media"
+    ports:
+      - "8090:3000"
