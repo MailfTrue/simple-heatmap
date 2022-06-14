@@ -4,20 +4,6 @@ const CSVToArray = (data, delimiter = ";", omitFirstRow = false) =>
     .split("\n")
     .map((v) => v.split(delimiter).map((x) => x.trim()));
 
-function updateURLParameter(param, paramVal) {
-  const search = window.location.search;
-  var regex = new RegExp("([?;&])" + param + "[^&;]*[;&]?");
-  var query = search.replace(regex, "$1").replace(/&$/, "");
-
-  window.history.replaceState(
-    "",
-    "",
-    window.location.pathname +
-      ((query.length > 2 ? query + "&" : "?") +
-        (paramVal ? param + "=" + paramVal : ""))
-  );
-}
-
 function getQueryVariable(variable) {
   let query = window.location.search.substring(1);
   let vars = query.split("&");
@@ -38,18 +24,14 @@ async function getQueryLayers() {
   const files = getQueryVariable("files");
   if (!files) return [];
   const layers = [];
-  console.log(files);
   for (let file of files.split(";")) {
-    console.log(file);
     const response = await fetch(file);
     const fullFileName = file.substring(file.lastIndexOf("/") + 1);
-    console.log(fullFileName);
     let userFileName =
       fullFileName.match(
         /^[0-9a-fA-F]{8}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{12}_(?<name>.*)$/
       )?.groups?.name || fullFileName;
 
-    console.log("ads", userFileName);
     layers.push({
       enabled: true,
       name: userFileName,
@@ -57,7 +39,6 @@ async function getQueryLayers() {
       data: getDataFromCSV(await response.text())
     });
   }
-  console.log(layers);
   return layers;
 }
 
@@ -71,12 +52,7 @@ ymaps.ready(["Heatmap"]).then(async function init() {
     controls: []
   });
 
-  myMap.events.add(["boundschange"], function (e) {
-    if (e.get("type") === "boundschange") {
-      updateURLParameter("center", e.get("newCenter").join(","));
-      updateURLParameter("zoom", e.get("newZoom"));
-    }
-  });
+  myMap.events.add("boundschange", updateQuery);
 
   const hetmapConfig = {
     radius: 15,
@@ -91,13 +67,27 @@ ymaps.ready(["Heatmap"]).then(async function init() {
     }
   };
 
-  let layers = await getQueryLayers();
+  var layers = await getQueryLayers();
   var heatmap = new ymaps.Heatmap([], hetmapConfig);
   heatmap.setMap(myMap);
+
+  function updateQuery() {
+    const params = new URLSearchParams({
+      center: myMap.getCenter().join(","),
+      zoom: myMap.getZoom(),
+      files: layers.map((x) => x.path).join(";")
+    });
+    window.history.replaceState(
+      "",
+      "",
+      window.location.pathname + "?" + params.toString()
+    );
+  }
 
   const controls = document.querySelector("#controls");
   const layersEl = controls.querySelector("#layers");
   function render() {
+    updateQuery();
     let data = [];
     for (let layerData of layers.filter((x) => x.enabled).map((x) => x.data))
       data = [...data, ...layerData];
@@ -119,9 +109,18 @@ ymaps.ready(["Heatmap"]).then(async function init() {
       label.setAttribute("for", checkboxId);
       label.innerText = layers[layerId].name;
 
+      const deleteBtn = document.createElement("i");
+      deleteBtn.setAttribute("class", "delete-btn fa-solid fa-trash");
+      deleteBtn.addEventListener("click", () => {
+        layers.splice(layerId, 1);
+        render();
+      });
+
       const inputDiv = document.createElement("div");
+      inputDiv.classList.add("layer");
       inputDiv.appendChild(input);
       inputDiv.appendChild(label);
+      inputDiv.appendChild(deleteBtn);
       layersEl.appendChild(inputDiv);
     }
   }
@@ -147,8 +146,6 @@ ymaps.ready(["Heatmap"]).then(async function init() {
           name: file.name,
           path: filePath
         });
-
-        updateURLParameter("files", layers.map((x) => x.path).join(";"));
 
         render();
         event.target.value = null;
